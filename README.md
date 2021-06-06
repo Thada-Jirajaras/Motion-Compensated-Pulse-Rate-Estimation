@@ -1,22 +1,58 @@
 
-## Part 1: Pulse Rate Algorithm
+## Pulse Rate Algorithm
 
-### Contents
-Fill out this notebook as part of your final project submission.
+### Code Description
+The main algorithm can be found in RunPulseRateAlgorithm function. Steps of the algorithms can be divided as follows.
+1. Load ppg, accx, accy, accz signals using LoadTroikaDataFile
+2. Segment each signal into windows (8 seconds per windows with 2 second sliding) and apply BandpassFilter (40-240 bpm) <br>
 
-**You will have to complete both the Code and Project Write-up sections.**
-- The [Code](#Code) is where you will write a **pulse rate algorithm** and already includes the starter code.
-   - Imports - These are the imports needed for Part 1 of the final project. 
-     - [glob](https://docs.python.org/3/library/glob.html)
-     - [numpy](https://numpy.org/)
-     - [scipy](https://www.scipy.org/)
-- The [Project Write-up](#Project-Write-up) to describe why you wrote the algorithm for the specific case.
+For each window, ....
+3. Apply furior transform to each signal 
+4. Normalise 'accx', 'accy' and 'accz' with their max values
+5.  **Combine all normalised frequency magnitudes of 'accx', 'accy' and 'accz' by summing them togethers as acc_maxsum (summation of all acc freq magnitude that are normalised by max values)   
+6.  Smooth acc_maxsum and the ppg frequency magnitude and normalised by their max values again 
+7. Minus ppg frequency magnitude by acc_maxsum magnitude as PPG_minus_acc 
+8. Find the PPG_minus_acc frequency that has the highest magnitude add estimate heart rate by this frequency.
+9. Calculate confidence by the fraction of estimated HR frequency smoothed magnitude and the summation of all magnitudes. <br>
+
+** The idea of combinding normalised acc magnitude is from investigating spectogram 
 
 
-### Dataset
-You will be using the **Troika**[1] dataset to build your algorithm. Find the dataset under `datasets/troika/training_data`. The `README` in that folder will tell you how to interpret the data. The starter code contains a function to help load these files.
+### Data Description
+#### What activities were performed in the dataset. <br>
+1. Segmentaion
+2. Banpass Filter
+3. fourier transform
 
-1. Zhilin Zhang, Zhouyue Pi, Benyuan Liu, ‘‘TROIKA: A General Framework for Heart Rate Monitoring Using Wrist-Type Photoplethysmographic Signals During Intensive Physical Exercise,’’IEEE Trans. on Biomedical Engineering, vol. 62, no. 2, pp. 522-531, February 2015. Link
+#### Features of the sensor that was used. <br>
+1. feature_sig = fft(ppg) - (fft(acc_x)/max(fft(acc_x)) + fft(acc_y)/max(fft(acc_y)) + fft(acc_z)/max(fft(acc_y)))
+2. estimated hr freq = feature_sig[argmax(feature_sig)]
+
+#### The quantity of data in the dataset. <br>
+PPG signal is interfered with movement signal so we need to remove these movement noises using info from the acc signals.
+
+#### Short-comings of the dataset. <br>
+There are only few data so we cannot create very complex model due to the over-fitting issue.
+
+### Algorithm Description
+#### How the algorithm works, including a description of the physiology. <br>
+Algorithms receives acc signal that mesure the acc in x,y, and z direnctions as well as PPG signal that is high at diastolic phase abd low at systolic phase due to the mechanism of light absorbsion by blood. Then the algorithm apply fft to each signal to get the frequency magnitude of acc and PPG. In order to remove the movement artifact from form the PPG signal, the algorithm minus the PPF freq magnitude by preprocessed acc freq magnitude. Finally, the estimated HR can be found by ginding the maximum magnitude of that ppg manitude. 
+
+
+#### An intuitive explanation of why the confidence algorithm produces a higher number for better estimates. <br>
+Based on the algorithm used in this project, HR estimation freq that has high and densed magnitude around it will give high confidence. The reason is because the dominant magnitude is likely from the dominant sorces such as heart rhythms.   
+
+
+#### Insightful caveats and failure-modes of the algorithm. <br>
+There is some failure cases due to indistinguishable info based on this algorithm. To improve the performance, the acc info may need to combined more wisely rather than just normalised by max values and summed up.
+
+
+### Algorithm Performance
+#### The algorithm performance and how it was computed. <br>
+The mean absolute error at 90% availability as seen in AggregateErrorMetric function
+
+#### Generalizability to other datasets. <br>
+To improve the generalizability, the acc info may need to combined more wisely rather than just normalised by max values and summed up. Also, more data should be added to see if the algorithm can also work well with other data.
 
 -----
 
