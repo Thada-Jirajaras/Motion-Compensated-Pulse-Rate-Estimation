@@ -150,29 +150,64 @@ def Evaluate():
     return AggregateErrorMetric(errs, confs)
 
 def segment_signal(signal, fs = 125, window_length_s = 8, window_shift_s = 2):
+    """
+    Segment the signal into windows and apply BandpassFilter (40-240 bpm) 
+
+    Args:
+        signal: a 1-D numpy array of signal
+        fs: sampling rate
+        window_length_s: the number of seconds for each segment
+        window_shift_s: the number of seconds for slinding 
+    Returns:
+        List of the filtered signal segments
+    """    
+    
     window_length = window_length_s * fs
     window_shift = window_shift_s * fs
     idx = list(range(0, len(signal) - window_length, window_shift))
     return([BandpassFilter(signal[i: i + window_length]) for i in idx])
     
 def RunPulseRateAlgorithm(data_fl, ref_fl):
-    # Load data using LoadTroikaDataFile
+     """
+    Run pulse rate estimation algorithm that return mean absoluste error of HR estimation and confidence of the prediction 
+
+    Args:
+        data_fl: (str) filepath to a signal .mat file.
+        ref_fl: (str) filepath to a reference .mat file.
+
+    Returns:
+        errors: mean absoluste error (MAE) of HR estimation
+        confidence: confidence of the HR estimation
+    """   
+    # (1) Load ppg, accx, accy, accz signals using LoadTroikaDataFile
     ppg, accx, accy, accz = LoadTroikaDataFile(data_fl)
-    
-    # Compute pulse rate estimates and estimation confidence.
     signals = dict(zip(['ppg', 'accx', 'accy', 'accz'], LoadTroikaDataFile(data_fl)))
+    
+        
+    # (2) Segment each signal into windows (8 seconds per windows with 2 second sliding) and apply BandpassFilter (40-240 bpm)
     for sigtype in ['ppg', 'accx', 'accy', 'accz']:
         signals[sigtype] = segment_signal(signals[sigtype])
     signals = [{sigtype:signals[sigtype][i] for sigtype in ['ppg', 'accx', 'accy', 'accz']}  for i in range(len(signals['ppg']))]
+    
+    # (3) Apply furior transform to each signal
     fft_signals = [{k: fft_func(v, fs = 125) for k,v in  signal.items()} for signal in signals]
+    
+    
+    # For each window,
     for fftsig in fft_signals:
         fftsig['acc_maxsum'] = {}
         fftsig['acc_maxsum']['freqs'] = fftsig['accx']['freqs']
+        
+        # (4) Normalise 'accx', 'accy' and 'accz' with their max values
         for sigtype in ['accx', 'accy', 'accz']:
             fftsig[sigtype]['fft_mag'] = 1.0*fftsig[sigtype]['fft_mag']/fftsig[sigtype]['fft_mag'].max() 
+            
+        # (5) Combine normalised fft of 'accx', 'accy' and 'accz' by summing them togethers as acc_maxsum (summation of all acc freq magnitude that are normalised by max values)   
         fftsig['acc_maxsum']['fft_mag'] = fftsig['accx']['fft_mag'] + fftsig['accy']['fft_mag'] + fftsig['accz']['fft_mag']
         for sigtype in ['accx', 'accy', 'accz']:
             del fftsig[sigtype]
+        
+        # (6) Smooth acc_maxsum and the ppg frequency magnitude and normalised by their max values again 
         for sigtype in ['ppg', 'acc_maxsum']:   
             fftsig[sigtype]['fft_mag'] = np.convolve(fftsig[sigtype]['fft_mag'], [0.0357141 ,  0.24107134,  0.44642914,  
                                                                        0.24107134,  0.0357141 ], 'same')      
@@ -183,27 +218,54 @@ def RunPulseRateAlgorithm(data_fl, ref_fl):
     errors = []
     confidence = []
     for i, signal in enumerate(fft_signals):
+        # (7) Minus ppg frequency magnitude by acc_maxsum magnitude as PPG_minus_acc 
         sig =  signal['ppg']['fft_mag'] - signal['acc_maxsum']['fft_mag']
+        
+        # (8) Find the PPG_minus_acc frequency that has the highest magnitude add estimate heart rate by this frequency.  
         maxind = np.argmax(sig)
         errors.append(abs(signal['ppg']['freqs'][maxind]*60 - ref_HR[i]))
+        
+        # (9) Calculate confidence by the fraction of estimated HR frequency smoothed magnitude and the summation of all magnitudes.
         confidence.append(signal['ppg']['fft_mag'][maxind]/sum( signal['ppg']['fft_mag']))
   
     # Return per-estimate mean absolute error and confidence as a 2-tuple of numpy arrays.
     return errors, confidence
 
 
-def BandpassFilter(signal, fs=125):
+def BandpassFilter(signal, fs=125, min_cutoff = 40/60.0, max_cutoff = 240/60.0):
     """
-    Bandpass filter the signal between 40 and 240 BPM.
+    Bandpass filter the signal between min_cutoff and max_cutoff.
+    
+    Args:
+        signal: a 1-D numpy array of signal
+        fs: sampling rate
+        min_cutoff: min cutoff for bandpass filter
+        max_cutoff: max cutoff for bandpass filter
+
+    Returns:
+        the filtered output with the same shape as signal.
     """
-    b, a = sp.signal.butter(3, (40/60.0, 240/60.0), btype='bandpass', fs=fs)
+    
+    b, a = sp.signal.butter(3, (min_cutoff, max_cutoff), btype='bandpass', fs=fs)
     return sp.signal.filtfilt(b, a, signal)
 
-def fft_func(sig, fs):
-    siglen = max(len(sig), 4096)
+def fft_func(sig, fs, max_signal_len = 4096):
+    """
+    Apply fast fourier transform (fft) to a given signal 
+    
+    Args:
+        sig: a 1-D numpy array of signal
+        fs: sampling rate
+        max_signal_len: (int) zero padding the signal to max_signal_len before applying (fft) on 
+            if length of signal is less than max_signal_len
+
+    Returns:
+        a dictionary of frequency-domian data with frequencies (freqs) and magnitudes (fft_mag) elements
+    """    
+    siglen = max(len(sig), max_signal_len)
     freqs = np.fft.rfftfreq(siglen, 1/fs)
     fft_mag = np.abs(np.fft.rfft(sig, siglen))
-    return  {'freqs': freqs, 'fft_mag': fft_mag}
+    return  {'freqs': freqs, 'fft_mag': fft_mag
 ```
 
 
